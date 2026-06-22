@@ -1,0 +1,19 @@
+# Ignore everything in ~/.claude by default...
+/*
+
+# ...except what we explicitly publish
+!/.gitignore
+!/README.md
+!/PLUGINS.md
+!/Makefile
+!/CLAUDE.md
+!/RTK.md
+!/rules/
+!/skills/
+
+# Within skills/, never leak secrets or local state
+skills/**/.env
+skills/**/*.key
+skills/**/.credentials.json
+/skills/supabase
+/skills/supabase-postgres-best-practices
