@@ -43,6 +43,31 @@ is tabular. No horizontal rule before a heading. Don't skip heading levels.
 Talking to the reader. Cut filler openers ("Certainly", "Great question", "I hope this
 helps"). No knowledge-cutoff disclaimers in the prose. No leftover placeholder text.
 
+## Code comments: constraints locked
+
+These override everything above when the text is a code comment. No strong breaks, EVER.
+
+- No mumbling. If it sounds like inner dialogue or process narration ("Aqui a gente
+  precisa tratar...", "Isso deveria funcionar", "Por enquanto fazemos assim"), remove
+  it. A comment must serve a point to the reader — a constraint, a non-obvious why, a
+  trap. If it doesn't, delete it instead of rewording it.
+- Plain direct sentences, verb-first ("Cadastra o cliente quando falta vinculo"). One
+  idea per sentence. Need a separator? Write two sentences.
+- Only commas and a final period are allowed inside a comment sentence. Banned:
+  - Colon constructions of any kind: "Label: explanation", "Nota:", "Ex.:",
+    "Retorna: x". Fold the label into the sentence ("Retorna x") or drop it.
+    Exception: the standard tooling markers "TODO:" and "FIXME:" stay — the text
+    after them still follows all these rules.
+  - Em dashes (—), en dashes (–), spaced hyphens as separators ("this - that").
+  - Semicolons joining clauses ("this; that").
+  - Any symmetrical "this SEP that" shape — the ban is on the shape, not the character.
+    No arrows, slashes, pipes, or parenthetical asides as substitutes.
+- Sole exception: literal quoted content (URLs, code, exact error messages) keeps its
+  own punctuation.
+- Doc comments (@doc, JSDoc, docstrings) focus on input and output — what goes in,
+  what comes out, stated directly. No implementation prose, no history, no context
+  the caller doesn't need.
+
 ## Step 3: test
 
 Read it back. If it sounds like a brochure, rewrite plainer.
