@@ -22,7 +22,10 @@
   - Semicolons joining clauses ("this; that").
   - Any other "symmetrical" label-then-explanation shape. The ban is on the SHAPE (this SEP that), not just the characters — don't substitute an arrow, slash, pipe, or parenthetical aside to get the same effect.
 - Sole exception: literal content quoted inside the comment (URLs, code snippets, exact error messages) keeps its own punctuation.
-- Doc comments (`@doc`, JSDoc, docstrings) focus on input and output — what goes in, what comes out, and be direct about it. No prose about implementation, history, or context the caller doesn't need.
+- Doc comments (`@doc`, JSDoc, docstrings) follow this exact two-line structure:
+  - Line 1: what it does, directly, in summarized terms.
+  - Line 2: "Receives x and returns y" ("Recebe x e retorna y" in pt-BR codebases).
+  - Nothing else. No implementation prose, no history, no context the caller doesn't need.
 - Comment wording: plain direct sentences, verb-first. No colon constructions, no em dashes, no "symmetrical" label-then-explanation punctuation of any kind ("This: that", "this - that", "this; that"). Write "Cadastra o cliente quando falta vinculo", never "Cadastro: cliente sem vinculo".
 
 ## Prose output (PRs, commit bodies, markdown, chat answers)

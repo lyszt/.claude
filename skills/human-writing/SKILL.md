@@ -64,9 +64,11 @@ These override everything above when the text is a code comment. No strong break
     No arrows, slashes, pipes, or parenthetical asides as substitutes.
 - Sole exception: literal quoted content (URLs, code, exact error messages) keeps its
   own punctuation.
-- Doc comments (@doc, JSDoc, docstrings) focus on input and output — what goes in,
-  what comes out, stated directly. No implementation prose, no history, no context
-  the caller doesn't need.
+- Doc comments (@doc, JSDoc, docstrings) follow this exact two-line structure:
+  - Line 1: what it does, directly, in summarized terms.
+  - Line 2: "Receives x and returns y" ("Recebe x e retorna y" in pt-BR codebases).
+  - Nothing else. No implementation prose, no history, no context the caller
+    doesn't need.
 
 ## Step 3: test
 
