@@ -12,6 +12,7 @@
 
 ## Code style
 - No `# [DOC]` comments. No curly/smart quotes (use straight quotes). No uppercase section-title banner comments. No decorative/redundant comments — only comment non-obvious *why*. `@doc`/`@spec` are fine.
+- NEVER name anything "upsert". Name what the code actually does: fill_missing_x, add_x, create_or_update_x.
 
 ### Comment wording (hard rules, apply to every code comment)
 - No mumbling. If a comment sounds like inner dialogue or narration of the process ("Aqui a gente precisa tratar o caso...", "Isso deveria funcionar", "Por enquanto fazemos assim"), remove it. Every comment must serve a point to the READER of the code — a constraint, a non-obvious why, a trap. If it doesn't, delete it, don't reword it.
@@ -22,6 +23,7 @@
   - Semicolons joining clauses ("this; that").
   - Any other "symmetrical" label-then-explanation shape. The ban is on the SHAPE (this SEP that), not just the characters — don't substitute an arrow, slash, pipe, or parenthetical aside to get the same effect.
 - Sole exception: literal content quoted inside the comment (URLs, code snippets, exact error messages) keeps its own punctuation.
+- Never reference a possible error or mistake that did not happen. Comments denying a hazard ("Falha na consulta não bloqueia o envio", "o registro compartilhado não é alterado", "does not overwrite y") are excusatory — delete them entirely. Do NOT rephrase them positively either; a comment mentioning a hypothetical failure the code avoids is banned in any wording. Comments state only what the code does.
 - Doc comments (`@doc`, JSDoc, docstrings) follow this exact two-line structure:
   - Line 1: what it does, directly, in summarized terms.
   - Line 2: "Receives x and returns y" ("Recebe x e retorna y" in pt-BR codebases).
