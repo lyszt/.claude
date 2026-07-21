@@ -30,6 +30,18 @@
   - Nothing else. No implementation prose, no history, no context the caller doesn't need.
 - Comment wording: plain direct sentences, verb-first. No colon constructions, no em dashes, no "symmetrical" label-then-explanation punctuation of any kind ("This: that", "this - that", "this; that"). Write "Cadastra o cliente quando falta vinculo", never "Cadastro: cliente sem vinculo".
 
+## Dev servers / compiling
+- Do NOT run compile commands (mix compile, rebar3 compile, make, etc.) after editing code. Modern dev servers recompile by default on code change; running compilers manually is redundant noise and can poison builds (wrong toolchain version).
+- Example: after editing m_sl_conta_azul.erl, the running Zotonic dev node picked it up on its own:
+
+```
+2026-07-17 11:43:22 INFO  site=superleme  dispatch=jslog ... in=zotonic_mod_logging
+Recompile: /home/kaldwin/Abensoft/Projects/zotonic/_build/default/lib/zotonic_mod_sl_conf/src/models/m_sl_conta_azul
+(zotonic@superleme.dev)1>
+```
+
+- Same applies to Phoenix (code reloader recompiles on request) and most watch-mode JS/TS servers. Verify behavior by exercising the running app, not by compiling.
+
 ## Prose output (PRs, commit bodies, markdown, chat answers)
 - NEVER use backticks (`) in prose deliverables — no inline-code spans, no fenced blocks wrapping plain words. Write identifiers, commands, and filenames as plain text. This is a hard ban; the user will reject output that contains backticks.
 - No curly/smart quotes and no em dashes in this prose either — straight quotes and plain punctuation only.
