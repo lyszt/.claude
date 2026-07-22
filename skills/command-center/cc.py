@@ -3,8 +3,7 @@
 
 Wraps the coordination server HTTP API so an agent can register, publish its
 status, lock resources, track tasks, and message other agents with one shell
-command. Tokens returned at registration are cached so later commands
-authenticate automatically.
+command. Agents identify by name, sent in an X-Agent-Name header.
 """
 
 import argparse
@@ -21,55 +20,26 @@ SERVER = os.environ.get(
     "CC_SERVER",
     "/home/kaldwin/Development/Tools/agent_orchestrator/server.py",
 )
-CACHE = os.path.join(
-    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
-    "agent-command-center",
-    "tokens.json",
-)
 
 
-def _load_tokens():
-    try:
-        with open(CACHE, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        return {}
-
-
-def _save_token(name, token):
-    tokens = _load_tokens()
-    tokens[f"{BASE}|{name}"] = token
-    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
-    with open(CACHE, "w", encoding="utf-8") as handle:
-        json.dump(tokens, handle)
-
-
-def _token_for(name):
-    return _load_tokens().get(f"{BASE}|{name}")
-
-
-def _need_token(name):
+def _need_actor(name):
     if not name:
         print("identify the acting agent with --as NAME or the CC_NAME env var", file=sys.stderr)
         return None
-    token = _token_for(name)
-    if not token:
-        print(f"no token cached for {name} at {BASE}, run register first", file=sys.stderr)
-        return None
-    return token
+    return name
 
 
 def _actor(args):
     return getattr(args, "as_", None) or os.environ.get("CC_NAME")
 
 
-def _request(method, path, payload=None, token=None):
+def _request(method, path, payload=None, actor=None):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(BASE + path, data=data, method=method)
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    if token:
-        req.add_header("X-Agent-Token", token)
+    if actor:
+        req.add_header("X-Agent-Name", actor)
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
             return resp.status, json.loads(resp.read() or "null")
@@ -86,7 +56,18 @@ def _is_up():
 
 
 def _emit(status, body):
-    print(json.dumps({"status": status, "body": body}, indent=2))
+    print(json.dumps({"status": status, "body": body}, separators=(",", ":")))
+
+
+def _trunc(text, limit=200):
+    """Collapse whitespace and cap length so long bodies do not bloat agent context.
+
+    Receives a string and an optional limit and returns a single-line truncated string.
+    """
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]} …(+{len(text) - limit} chars, --full)"
 
 
 def cmd_up(args):
@@ -116,57 +97,88 @@ def cmd_register(args):
     payload = {"name": args.name, "working_on": args.working_on or ""}
     if args.team:
         payload["team"] = args.team
-    cached = _token_for(args.name)
-    if cached:
-        payload["token"] = cached
+    if args.role:
+        payload["role"] = args.role
+    if args.can_spawn:
+        payload["can_spawn"] = True
     status, body = _request("POST", "/agents", payload)
-    if status < 400 and body.get("token"):
-        _save_token(args.name, body["token"])
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_spawn(args):
+    actor = _need_actor(args.parent)
+    if not actor:
+        return 1
+    payload = {"name": args.name, "parent": args.parent, "working_on": args.working_on or ""}
+    if args.team:
+        payload["team"] = args.team
+    if args.role:
+        payload["role"] = args.role
+    if args.can_spawn:
+        payload["can_spawn"] = True
+    status, body = _request("POST", "/agents", payload, actor=actor)
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_set_role(args):
+    actor = _need_actor(_actor(args))
+    if not actor:
+        return 1
+    payload = {"name": args.name}
+    if args.role:
+        payload["role"] = args.role
+    if args.can_spawn:
+        payload["can_spawn"] = True
+    if args.no_spawn:
+        payload["can_spawn"] = False
+    status, body = _request("POST", "/roles", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_status(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("POST", "/status", {"working_on": args.working_on}, token=token)
+    status, body = _request("POST", "/status", {"working_on": args.working_on}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_heartbeat(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("POST", "/heartbeat", {}, token=token)
+    status, body = _request("POST", "/heartbeat", {}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_focus(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("POST", "/focus", {"note": args.note or ""}, token=token)
+    status, body = _request("POST", "/focus", {"note": args.note or ""}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_unfocus(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("POST", "/unfocus", {}, token=token)
+    status, body = _request("POST", "/unfocus", {}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_assign(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("POST", "/team", {"team": args.team}, token=token)
+    status, body = _request("POST", "/team", {"team": args.team}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
@@ -183,14 +195,27 @@ def cmd_who(args):
         f"locks {totals['locks']}  "
         f"(online {p['online']}, busy {p['busy']}, away {p['away']}, offline {p['offline']})"
     )
+    show_all = getattr(args, "all", False)
     for agent in body["agents"]:
-        work = agent["working_on"] or "-"
+        if not show_all and agent["presence"] == "offline":
+            continue
+        work = _trunc(agent["working_on"] or "-", 80)
         team = agent.get("team") or "-"
+        role = agent.get("role", "member")
+        if agent.get("can_spawn"):
+            role += "*"
         note = f" [{agent['focus_note']}]" if agent.get("focus") and agent.get("focus_note") else ""
         print(
-            f"  [{agent['presence']:<7}] {agent['name']:<16} {team:<12} "
+            f"  [{agent['presence']:<7}] {agent['name']:<16} {team:<12} {role:<10} "
             f"unread {agent['unread']:<3} {work}{note}"
         )
+    if not show_all and p["offline"]:
+        print(f"  (+{p['offline']} offline, --all to show)")
+    boards = [c for c in body.get("channels", []) if c["name"] in ("rules", "announcements")]
+    for c in boards:
+        last = c.get("last")
+        tail = f"last {last['from']}: {last['body']}" if last else "empty"
+        print(f"  #{c['name']} ({c['message_count']}) {tail}")
     return 0
 
 
@@ -215,8 +240,8 @@ def cmd_team(args):
 
 def cmd_team_set(args):
     actor = _actor(args)
-    token = _need_token(actor)
-    if not token:
+    actor = _need_actor(actor)
+    if not actor:
         return 1
     payload = {"name": args.name}
     if args.motto is not None:
@@ -225,11 +250,15 @@ def cmd_team_set(args):
         payload["description"] = args.description
     if args.lead is not None:
         payload["lead"] = args.lead
+    if getattr(args, "project", None) is not None:
+        payload["project"] = args.project
+    if getattr(args, "parent_team", None) is not None:
+        payload["parent_team"] = args.parent_team
     if args.value:
         payload["values"] = args.value
     if args.rule:
         payload["rules"] = args.rule
-    status, body = _request("POST", "/teams", payload, token=token)
+    status, body = _request("POST", "/teams", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
@@ -251,10 +280,12 @@ def cmd_inbox(args):
         _emit(status, body)
         return 1
     print(f"{body['count']} message(s) for {args.name}")
+    full = getattr(args, "full", False)
     for m in body["messages"]:
         scope = m.get("scope") or "direct"
         kind = m.get("kind", "message")
-        print(f"  #{m['id']} [{scope}/{kind}] from {m['from']}: {m['body']}")
+        text = m["body"] if full else _trunc(m["body"])
+        print(f"  #{m['id']} [{scope}/{kind}] from {m['from']}: {text}")
     return 0
 
 
@@ -280,36 +311,36 @@ def cmd_stream(args):
 
 def cmd_send(args):
     sender = getattr(args, "from")
-    token = _need_token(sender)
-    if not token:
+    actor = _need_actor(sender)
+    if not actor:
         return 1
     payload = {"to": args.to, "body": args.body}
     if args.kind:
         payload["kind"] = args.kind
     if args.in_reply_to is not None:
         payload["in_reply_to"] = args.in_reply_to
-    status, body = _request("POST", "/messages", payload, token=token)
+    status, body = _request("POST", "/messages", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_broadcast(args):
     sender = getattr(args, "from")
-    token = _need_token(sender)
-    if not token:
+    actor = _need_actor(sender)
+    if not actor:
         return 1
-    status, body = _request("POST", "/messages", {"to": "all", "body": args.body}, token=token)
+    status, body = _request("POST", "/messages", {"to": "all", "body": args.body}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_team_msg(args):
     sender = getattr(args, "from")
-    token = _need_token(sender)
-    if not token:
+    actor = _need_actor(sender)
+    if not actor:
         return 1
     status, body = _request(
-        "POST", "/messages", {"to": "team:" + args.team, "body": args.body}, token=token
+        "POST", "/messages", {"to": "team:" + args.team, "body": args.body}, actor=actor
     )
     _emit(status, body)
     return 0 if status < 400 else 1
@@ -317,43 +348,113 @@ def cmd_team_msg(args):
 
 def cmd_channel(args):
     sender = getattr(args, "from")
-    token = _need_token(sender)
-    if not token:
+    actor = _need_actor(sender)
+    if not actor:
         return 1
     status, body = _request(
-        "POST", "/messages", {"to": "channel:" + args.channel, "body": args.body}, token=token
+        "POST", "/messages", {"to": "channel:" + args.channel, "body": args.body}, actor=actor
     )
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
-def cmd_channel_log(args):
-    status, body = _request("GET", f"/channels/{args.channel}")
+def cmd_rule(args):
+    sender = getattr(args, "from")
+    actor = _need_actor(sender)
+    if not actor:
+        return 1
+    status, body = _request(
+        "POST", "/messages", {"to": "channel:rules", "body": args.body, "kind": "rule"}, actor=actor
+    )
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_announce(args):
+    sender = getattr(args, "from")
+    actor = _need_actor(sender)
+    if not actor:
+        return 1
+    status, body = _request(
+        "POST", "/messages", {"to": "channel:announcements", "body": args.body, "kind": "announce"}, actor=actor
+    )
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_feedback(args):
+    sender = getattr(args, "from")
+    actor = _need_actor(sender)
+    if not actor:
+        return 1
+    payload = {"kind": args.kind, "title": args.title or "", "body": args.body}
+    if args.target:
+        payload["target"] = args.target
+    status, body = _request("POST", "/feedback", payload, actor=actor)
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_channels(args):
+    status, body = _request("GET", "/channels", actor=_actor(args))
     if status >= 400 or not body:
         _emit(status, body)
         return 1
-    for m in body["messages"]:
-        print(f"  #{m['id']} from {m['from']}: {m['body']}")
+    if not body["channels"]:
+        print("no channels yet")
+        return 0
+    for c in body["channels"]:
+        topic = f" — {c['topic']}" if c.get("topic") else ""
+        print(f"  #{c['name']} ({c['message_count']}){topic}")
+    return 0
+
+
+def cmd_channel_new(args):
+    actor = _need_actor(_actor(args))
+    if not actor:
+        return 1
+    payload = {"name": args.name}
+    if args.topic is not None:
+        payload["topic"] = args.topic
+    status, body = _request("POST", "/channels", payload, actor=actor)
+    _emit(status, body)
+    return 0 if status < 400 else 1
+
+
+def cmd_channel_log(args):
+    status, body = _request("GET", f"/channels/{args.channel}", actor=_actor(args))
+    if status >= 400 or not body:
+        _emit(status, body)
+        return 1
+    msgs = body["messages"]
+    full = getattr(args, "full", False)
+    limit = getattr(args, "limit", 0) or 20
+    shown = msgs if full else msgs[-limit:]
+    if not full and len(msgs) > len(shown):
+        print(f"  (showing last {len(shown)} of {len(msgs)}, --full for all)")
+    for m in shown:
+        text = m["body"] if full else _trunc(m["body"])
+        print(f"  #{m['id']} from {m['from']}: {text}")
     return 0
 
 
 def cmd_lock(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
     payload = {"resource": args.resource}
     if args.ttl:
         payload["ttl"] = args.ttl
-    status, body = _request("POST", "/locks", payload, token=token)
+    status, body = _request("POST", "/locks", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_unlock(args):
-    token = _need_token(args.name)
-    if not token:
+    actor = _need_actor(args.name)
+    if not actor:
         return 1
-    status, body = _request("DELETE", f"/locks/{args.resource}", {}, token=token)
+    status, body = _request("DELETE", f"/locks/{args.resource}", {}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
@@ -390,38 +491,38 @@ def cmd_guide(args):
 
 
 def cmd_task_new(args):
-    token = _need_token(_actor(args))
-    if not token:
+    actor = _need_actor(_actor(args))
+    if not actor:
         return 1
     payload = {"title": args.title}
     for key in ("owner", "team", "status", "blocked_by"):
         value = getattr(args, key)
         if value:
             payload[key] = value
-    status, body = _request("POST", "/tasks", payload, token=token)
+    status, body = _request("POST", "/tasks", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_task_set(args):
-    token = _need_token(_actor(args))
-    if not token:
+    actor = _need_actor(_actor(args))
+    if not actor:
         return 1
     payload = {}
     for key in ("title", "owner", "team", "status", "blocked_by"):
         value = getattr(args, key)
         if value is not None:
             payload[key] = value
-    status, body = _request("POST", f"/tasks/{args.id}", payload, token=token)
+    status, body = _request("POST", f"/tasks/{args.id}", payload, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
 
 def cmd_task_rm(args):
-    token = _need_token(_actor(args))
-    if not token:
+    actor = _need_actor(_actor(args))
+    if not actor:
         return 1
-    status, body = _request("DELETE", f"/tasks/{args.id}", {}, token=token)
+    status, body = _request("DELETE", f"/tasks/{args.id}", {}, actor=actor)
     _emit(status, body)
     return 0 if status < 400 else 1
 
@@ -465,11 +566,30 @@ def build_parser():
     p = sub.add_parser("up", help="start the command center if it is down")
     p.set_defaults(func=cmd_up)
 
-    p = sub.add_parser("register", help="register this agent and cache its token")
+    p = sub.add_parser("register", help="register this agent")
     p.add_argument("name")
     p.add_argument("working_on", nargs="?", default="")
     p.add_argument("--team", default="")
+    p.add_argument("--role", default="", help="member, lead, manager or a specialist role")
+    p.add_argument("--can-spawn", action="store_true", dest="can_spawn")
     p.set_defaults(func=cmd_register)
+
+    p = sub.add_parser("spawn", help="a spawn-capable agent creates a subagent")
+    p.add_argument("parent")
+    p.add_argument("name")
+    p.add_argument("working_on", nargs="?", default="")
+    p.add_argument("--team", default="")
+    p.add_argument("--role", default="")
+    p.add_argument("--can-spawn", action="store_true", dest="can_spawn")
+    p.set_defaults(func=cmd_spawn)
+
+    p = sub.add_parser("set-role", help="manager sets who is who")
+    p.add_argument("name")
+    p.add_argument("role", nargs="?", default="")
+    p.add_argument("--can-spawn", action="store_true", dest="can_spawn")
+    p.add_argument("--no-spawn", action="store_true", dest="no_spawn")
+    _add_as(p)
+    p.set_defaults(func=cmd_set_role)
 
     p = sub.add_parser("status", help="set what this agent is working on")
     p.add_argument("name")
@@ -495,6 +615,7 @@ def build_parser():
     p.set_defaults(func=cmd_assign)
 
     p = sub.add_parser("who", help="show who is working, compact")
+    p.add_argument("--all", action="store_true", help="include offline agents")
     p.set_defaults(func=cmd_who)
 
     p = sub.add_parser("teams", help="list departments with metadata and members")
@@ -509,6 +630,8 @@ def build_parser():
     p.add_argument("--motto", default=None)
     p.add_argument("--description", default=None)
     p.add_argument("--lead", default=None)
+    p.add_argument("--project", default=None, help="the project this team belongs to")
+    p.add_argument("--parent-team", dest="parent_team", default=None, help="parent team for a sub-team")
     p.add_argument("--value", action="append", help="repeatable team value")
     p.add_argument("--rule", action="append", help="repeatable working rule")
     _add_as(p)
@@ -521,6 +644,7 @@ def build_parser():
     p.add_argument("--since", type=int, default=0)
     p.add_argument("--wait", type=int, default=0, help="long-poll seconds")
     p.add_argument("--kind", default="")
+    p.add_argument("--full", action="store_true", help="show full message bodies")
     p.set_defaults(func=cmd_inbox)
 
     p = sub.add_parser("stream", help="live push stream of incoming messages")
@@ -546,6 +670,16 @@ def build_parser():
     p.add_argument("body")
     p.set_defaults(func=cmd_team_msg)
 
+    p = sub.add_parser("channels", help="list channels with topics")
+    _add_as(p)
+    p.set_defaults(func=cmd_channels)
+
+    p = sub.add_parser("channel-new", help="create a channel or set its topic")
+    p.add_argument("name")
+    p.add_argument("--topic", default=None)
+    _add_as(p)
+    p.set_defaults(func=cmd_channel_new)
+
     p = sub.add_parser("channel", help="post to a durable channel")
     p.add_argument("from")
     p.add_argument("channel")
@@ -554,7 +688,28 @@ def build_parser():
 
     p = sub.add_parser("channel-log", help="read a channel history")
     p.add_argument("channel")
+    p.add_argument("--full", action="store_true", help="show all messages, full bodies")
+    p.add_argument("--limit", type=int, default=20, help="how many recent messages to show")
+    _add_as(p)
     p.set_defaults(func=cmd_channel_log)
+
+    p = sub.add_parser("rule", help="post a shared rule to the rules board")
+    p.add_argument("from")
+    p.add_argument("body")
+    p.set_defaults(func=cmd_rule)
+
+    p = sub.add_parser("feedback", help="report a bug, issue or improvement (stored + opens a GitHub issue)")
+    p.add_argument("from")
+    p.add_argument("body")
+    p.add_argument("--kind", default="issue", help="bug, issue or improvement")
+    p.add_argument("--title", default="")
+    p.add_argument("--target", default="", help="the file, component or endpoint it concerns")
+    p.set_defaults(func=cmd_feedback)
+
+    p = sub.add_parser("announce", help="post lead or management direction to the announcements board")
+    p.add_argument("from")
+    p.add_argument("body")
+    p.set_defaults(func=cmd_announce)
 
     p = sub.add_parser("lock", help="acquire a resource lock")
     p.add_argument("name")
